@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Veynt",
+    "slug": "ve-ynt-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "ve-ynt",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Veynt uses the microphone to analyze a recording you choose to submit."
+      }
+    },
+    "android": {
+      "package": "com.example.mobile",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": ["expo-av", "expo-document-picker"]
+  }
+}
