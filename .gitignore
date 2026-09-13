@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .venv-1/
 backend/.venv/
+backend/pretrained_models/
 .env
 .env.*
 node_modules/

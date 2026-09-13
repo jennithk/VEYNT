@@ -57,7 +57,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --env-file .env --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend
@@ -117,13 +117,18 @@ VEYNT_STT_MODEL=small
 VEYNT_STT_DEVICE=cpu
 VEYNT_STT_COMPUTE_TYPE=int8
 VEYNT_AUTHENTICITY_PROVIDER=local_aasist
+VEYNT_SPEAKER_PROVIDER=local
+VEYNT_SPEAKER_MODEL=speechbrain/spkrec-ecapa-voxceleb
+VEYNT_SPEAKER_MATCH_THRESHOLD=70
 ```
 
 Notes:
 
 - Whisper handles speech-to-text locally and supports English, Hindi, Telugu, and auto-detection.
+- `VEYNT_STT_PROVIDER=local` uses the installed faster-whisper runtime; the first run downloads the selected model and may take several minutes.
+- `VEYNT_SPEAKER_PROVIDER=local` uses SpeechBrain ECAPA embeddings; the first verification downloads the pretrained model.
 - AASIST is a separate anti-spoofing model for synthetic-speech detection; it is not equivalent to speaker verification.
-- The app stays honest and returns `INCONCLUSIVE` if the model checkpoint or provider is missing.
+- The app stays honest and returns `INCONCLUSIVE` if the AASIST checkpoint or provider is missing. The local AASIST adapter is checkpoint-gated and still needs a model-specific inference adapter.
 - Speaker verification is a separate subsystem and should not be confused with anti-spoofing detection.
 
 ## Provider configuration

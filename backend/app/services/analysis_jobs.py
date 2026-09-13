@@ -18,6 +18,7 @@ class AnalysisJobManager:
 
     def _run(self, user_id: str, analysis_id: str, audio: bytes, language: str):
         started = time.perf_counter()
+        transcript = None
         self.store.update(user_id, analysis_id, status="PROCESSING")
         try:
             transcript_service = build_speech_to_text()
@@ -39,6 +40,19 @@ class AnalysisJobManager:
                 processing_time_ms=round((time.perf_counter() - started) * 1000),
             )
         except RuntimeError as exc:
-            self.store.update(user_id, analysis_id, status="INCONCLUSIVE", signals=[str(exc), "Configure verified providers before treating this as a production result"], risk={"level": "INCONCLUSIVE", "reasons": [str(exc)]}, processing_time_ms=round((time.perf_counter() - started) * 1000))
+            changes = {
+                "status": "INCONCLUSIVE",
+                "signals": [str(exc), "Configure verified providers before treating this as a production result"],
+                "risk": {"level": "INCONCLUSIVE", "reasons": [str(exc)]},
+                "processing_time_ms": round((time.perf_counter() - started) * 1000),
+            }
+            if transcript is not None:
+                changes["transcript"] = {
+                    "text": transcript.text,
+                    "language": transcript.language,
+                    "confidence": transcript.confidence,
+                    "segments": [segment.__dict__ for segment in transcript.segments],
+                }
+            self.store.update(user_id, analysis_id, **changes)
         except Exception as exc:
             self.store.update(user_id, analysis_id, status="FAILED", signals=["The analysis service failed safely", str(exc)], risk={"level": "INCONCLUSIVE", "reasons": ["Retry the analysis or use a clearer recording"]}, processing_time_ms=round((time.perf_counter() - started) * 1000))

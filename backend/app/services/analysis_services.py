@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
 import os
+import threading
+
 import httpx
 from dataclasses import dataclass
 from typing import Protocol
@@ -68,6 +71,69 @@ class UnconfiguredSpeakerVerification:
         raise RuntimeError("Speaker verification provider is not configured")
 
 
+class LocalAasistAuthenticity:
+    def analyze(self, audio: bytes, language: str) -> AuthenticityResult:
+        checkpoint = os.getenv("VEYNT_AUTHENTICITY_MODEL_PATH", "")
+        if not checkpoint:
+            raise RuntimeError("Set VEYNT_AUTHENTICITY_MODEL_PATH to an official AASIST checkpoint")
+        raise RuntimeError("The configured AASIST checkpoint needs a model adapter before it can be used")
+
+
+class LocalSpeakerVerification:
+    _model = None
+    _lock = threading.Lock()
+
+    def _encoder(self):
+        with self._lock:
+            if self._model is None:
+                try:
+                    import torchaudio
+
+                    if not hasattr(torchaudio, "list_audio_backends"):
+                        torchaudio.list_audio_backends = lambda: ["soundfile"]
+                    from speechbrain.utils.fetching import LocalStrategy
+                    from speechbrain.inference.speaker import EncoderClassifier
+                except ImportError as exc:
+                    raise RuntimeError("Install speechbrain to use local speaker verification") from exc
+                self._model = EncoderClassifier.from_hparams(
+                    source=os.getenv("VEYNT_SPEAKER_MODEL", "speechbrain/spkrec-ecapa-voxceleb"),
+                    savedir=os.getenv("VEYNT_SPEAKER_MODEL_DIR", "pretrained_models/spkrec-ecapa-voxceleb"),
+                    local_strategy=LocalStrategy.COPY,
+                )
+            return self._model
+
+    def compare(self, reference_audio: bytes, test_audio: bytes) -> SpeakerVerificationResult:
+        try:
+            import av
+            import numpy as np
+            import torch
+
+            def embedding(audio_bytes):
+                container = av.open(io.BytesIO(audio_bytes))
+                resampler = av.audio.resampler.AudioResampler(format="fltp", layout="mono", rate=16000)
+                chunks = []
+                for frame in container.decode(audio=0):
+                    chunks.extend(resampler.resample(frame))
+                samples = [frame.to_ndarray() for frame in chunks]
+                if not samples:
+                    raise RuntimeError("The recording contains no decodable audio")
+                waveform = torch.from_numpy(np.concatenate(samples, axis=1)).float()
+                with torch.no_grad():
+                    return self._encoder().encode_batch(waveform)
+
+            reference_embedding = embedding(reference_audio)
+            test_embedding = embedding(test_audio)
+            similarity = float(torch.nn.functional.cosine_similarity(reference_embedding.flatten(), test_embedding.flatten(), dim=0).item())
+            similarity_percent = round(max(0.0, min(1.0, (similarity + 1) / 2)) * 100, 1)
+            threshold = float(os.getenv("VEYNT_SPEAKER_MATCH_THRESHOLD", "70"))
+            status = "MATCH" if similarity_percent >= threshold else "NO_MATCH"
+            return SpeakerVerificationResult(status, similarity_percent, similarity_percent, "speechbrain-ecapa")
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"Local speaker verification failed: {exc}") from exc
+
+
 class OpenAISpeechToText:
     def __init__(self):
         self.api_key = os.environ["VEYNT_STT_API_KEY"]
@@ -83,6 +149,43 @@ class OpenAISpeechToText:
         body = response.json()
         segments = [TranscriptSegment(float(item.get("start", 0)), float(item.get("end", 0)), item.get("text", "").strip()) for item in body.get("segments", [])]
         return TranscriptionResult(body.get("text", "").strip(), body.get("language", language), body.get("confidence"), segments)
+
+
+class LocalWhisperSpeechToText:
+    _models = {}
+    _lock = threading.Lock()
+
+    def __init__(self):
+        self.model_name = os.getenv("VEYNT_STT_MODEL", "tiny")
+        self.device = os.getenv("VEYNT_STT_DEVICE", "cpu")
+        self.compute_type = os.getenv("VEYNT_STT_COMPUTE_TYPE", "int8")
+
+    def _model(self):
+        key = (self.model_name, self.device, self.compute_type)
+        with self._lock:
+            if key not in self._models:
+                try:
+                    from faster_whisper import WhisperModel
+                except ImportError as exc:
+                    raise RuntimeError(f"Local speech-to-text dependencies are unavailable: {exc}") from exc
+                self._models[key] = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+            return self._models[key]
+
+    def transcribe(self, audio: bytes, language: str) -> TranscriptionResult:
+        options = {"beam_size": 5}
+        if language != "auto":
+            options["language"] = language
+        try:
+            segments, info = self._model().transcribe(io.BytesIO(audio), **options)
+            materialized = [TranscriptSegment(float(item.start), float(item.end), item.text.strip()) for item in segments]
+        except Exception as exc:
+            raise RuntimeError(f"Local speech-to-text failed: {exc}") from exc
+        return TranscriptionResult(
+            " ".join(segment.text for segment in materialized).strip(),
+            info.language,
+            getattr(info, "language_probability", None),
+            materialized,
+        )
 
 
 class HttpAuthenticityService:
@@ -115,6 +218,8 @@ def build_speech_to_text() -> SpeechToTextService:
     provider = os.getenv("VEYNT_STT_PROVIDER", "none").lower()
     if provider == "openai":
         return OpenAISpeechToText()
+    if provider == "local":
+        return LocalWhisperSpeechToText()
     if provider == "none":
         return UnconfiguredSpeechToText()
     raise RuntimeError(f"Unsupported STT provider: {provider}")
@@ -124,6 +229,8 @@ def build_authenticity_service() -> VoiceAuthenticityService:
     provider = os.getenv("VEYNT_AUTHENTICITY_PROVIDER", "none").lower()
     if provider == "http":
         return HttpAuthenticityService()
+    if provider == "local_aasist":
+        return LocalAasistAuthenticity()
     if provider == "none":
         return UnconfiguredVoiceAuthenticity()
     raise RuntimeError(f"Unsupported authenticity provider: {provider}")
@@ -133,6 +240,8 @@ def build_speaker_verification() -> SpeakerVerificationService:
     provider = os.getenv("VEYNT_SPEAKER_PROVIDER", "none").lower()
     if provider == "http":
         return HttpSpeakerVerification()
+    if provider == "local":
+        return LocalSpeakerVerification()
     if provider == "none":
         return UnconfiguredSpeakerVerification()
     raise RuntimeError(f"Unsupported speaker provider: {provider}")
