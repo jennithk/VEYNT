@@ -71,7 +71,13 @@ async def create_analysis(
         },
         status="QUEUED",
     )
-    jobs.submit(user_id, record["id"], content, language)
+    jobs.submit(
+        user_id,
+        record["id"],
+        content,
+        language,
+        audio.filename,
+    )
     return AnalysisStartResponse(id=record["id"], status="QUEUED", message="Analysis queued")
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from app.risk_engine.risk_engine import compute_evidence_risk
 from app.services.analysis_services import (
@@ -27,6 +28,7 @@ class AnalysisJobManager:
         analysis_id: str,
         audio: bytes,
         language: str,
+        filename: str | None = None,
     ):
         self.executor.submit(
             self._run,
@@ -34,6 +36,7 @@ class AnalysisJobManager:
             analysis_id,
             audio,
             language,
+            filename,
         )
 
     def _run(
@@ -42,6 +45,7 @@ class AnalysisJobManager:
         analysis_id: str,
         audio: bytes,
         language: str,
+        filename: str | None = None,
     ):
         started = time.perf_counter()
 
@@ -61,6 +65,7 @@ class AnalysisJobManager:
                 transcript = transcript_service.transcribe(
                     audio,
                     language,
+                    filename,
                 )
             except RuntimeError as exc:
                 transcript_warning = f"Transcript unavailable: {exc}"

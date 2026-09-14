@@ -23,7 +23,12 @@ async def verify_speaker(reference: UploadFile = File(...), test: UploadFile = F
     except AudioValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        result = build_speaker_verification().compare(reference_bytes, test_bytes)
+        result = build_speaker_verification().compare(
+            reference_bytes,
+            test_bytes,
+            reference.filename,
+            test.filename,
+        )
         payload = {"status": result.status, "similarity": result.similarity, "confidence": result.confidence, "provider": result.provider}
     except RuntimeError as exc:
         payload = {"status": "INCONCLUSIVE", "similarity": None, "confidence": None, "provider": "unconfigured", "reason": str(exc)}

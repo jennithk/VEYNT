@@ -71,6 +71,8 @@ class SpeakerVerificationService(Protocol):
         self,
         reference_audio: bytes,
         test_audio: bytes,
+        reference_filename: str | None = None,
+        test_filename: str | None = None,
     ) -> SpeakerVerificationResult:
         ...
 
@@ -84,6 +86,7 @@ class UnconfiguredSpeechToText:
         self,
         audio: bytes,
         language: str,
+        filename: str | None = None,
     ) -> TranscriptionResult:
         raise RuntimeError(
             "Speech-to-text provider is not configured"
@@ -106,6 +109,8 @@ class UnconfiguredSpeakerVerification:
         self,
         reference_audio: bytes,
         test_audio: bytes,
+        reference_filename: str | None = None,
+        test_filename: str | None = None,
     ) -> SpeakerVerificationResult:
         raise RuntimeError(
             "Speaker verification provider is not configured"
@@ -203,7 +208,9 @@ class LocalWhisperSpeechToText:
                 "Audio data is empty"
             )
 
-        suffix = ".wav"
+        suffix = Path(filename or "recording.wav").suffix.lower()
+        if suffix not in {".aac", ".m4a", ".mp3", ".wav", ".webm"}:
+            suffix = ".wav"
 
         with tempfile.NamedTemporaryFile(
             suffix=suffix,
@@ -473,13 +480,23 @@ class LocalSpeakerVerification:
         self,
         reference_audio: bytes,
         test_audio: bytes,
+        reference_filename: str | None = None,
+        test_filename: str | None = None,
     ) -> SpeakerVerificationResult:
         if not reference_audio or not test_audio:
             raise RuntimeError("Both reference and test audio are required for speaker verification.")
 
         model = self._get_model()
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reference_file, tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as test_file:
+        reference_suffix = Path(reference_filename or "reference.wav").suffix.lower()
+        test_suffix = Path(test_filename or "test.wav").suffix.lower()
+        supported_suffixes = {".aac", ".m4a", ".mp3", ".wav", ".webm"}
+        if reference_suffix not in supported_suffixes:
+            reference_suffix = ".wav"
+        if test_suffix not in supported_suffixes:
+            test_suffix = ".wav"
+
+        with tempfile.NamedTemporaryFile(suffix=reference_suffix, delete=False) as reference_file, tempfile.NamedTemporaryFile(suffix=test_suffix, delete=False) as test_file:
             reference_file.write(reference_audio)
             test_file.write(test_audio)
             reference_path = reference_file.name
@@ -561,6 +578,8 @@ class HttpSpeakerVerification:
         self,
         reference_audio: bytes,
         test_audio: bytes,
+        reference_filename: str | None = None,
+        test_filename: str | None = None,
     ) -> SpeakerVerificationResult:
 
         headers = {}
