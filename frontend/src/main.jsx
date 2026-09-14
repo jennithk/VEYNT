@@ -391,7 +391,7 @@ function App() {
         </button>
 
         <span className="descriptor">
-          Voice Authenticity &amp; Verification
+          Voice authenticity &amp; verification
         </span>
 
         <button className="account-chip" onClick={signOut}>
