@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 from dataclasses import dataclass
@@ -503,23 +504,34 @@ class LocalSpeakerVerification:
             test_path = test_file.name
 
         try:
-            import soundfile as sf
+            import av
+            import numpy as np
             import torch
             import torchaudio
 
-            reference_data, reference_rate = sf.read(
-                reference_path,
-                dtype="float32",
-                always_2d=True,
-            )
-            test_data, test_rate = sf.read(
-                test_path,
-                dtype="float32",
-                always_2d=True,
-            )
+            def decode(path):
+                with av.open(path) as container:
+                    stream = container.streams.audio[0]
+                    frames = [
+                        frame.to_ndarray()
+                        for frame in container.decode(stream)
+                    ]
 
-            reference_waveform = torch.from_numpy(reference_data.T)
-            test_waveform = torch.from_numpy(test_data.T)
+                if not frames:
+                    raise RuntimeError("No audio frames were decoded")
+
+                normalized_frames = [
+                    frame[np.newaxis, :] if frame.ndim == 1 else frame
+                    for frame in frames
+                ]
+                samples = np.concatenate(normalized_frames, axis=1)
+                samples = samples.astype("float32")
+                if np.max(np.abs(samples)) > 1.5:
+                    samples /= 32768.0
+                return torch.from_numpy(samples), int(stream.rate)
+
+            reference_waveform, reference_rate = decode(reference_path)
+            test_waveform, test_rate = decode(test_path)
 
             if reference_waveform.ndim == 2:
                 reference_waveform = reference_waveform.mean(dim=0)
