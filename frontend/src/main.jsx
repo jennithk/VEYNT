@@ -16,6 +16,25 @@ const languageLabels = Object.fromEntries(
   languages.map((item) => [item.value, item.label])
 );
 
+const analysisStatusLabels = {
+  idle: 'Ready',
+  waiting: 'Waiting',
+  processing: 'Analyzing',
+  complete: 'Complete',
+  error: 'Error',
+};
+
+function getResultLabel(aiProbability) {
+  if (aiProbability == null || Number.isNaN(aiProbability)) {
+    return 'Inconclusive';
+  }
+
+  if (aiProbability >= 90) return 'Highly Likely AI';
+  if (aiProbability >= 70) return 'Likely AI';
+  if (aiProbability >= 30) return 'Inconclusive';
+  return 'Likely Human';
+}
+
 function App() {
   const [section, setSection] = useState('analyze');
   const [language, setLanguage] = useState('auto');
@@ -144,6 +163,7 @@ function App() {
         console.log('RECORDING CREATED:', recordedFile);
 
         setFile(recordedFile);
+        setStatus('waiting');
 
         stream.getTracks().forEach((track) => track.stop());
       };
@@ -430,6 +450,11 @@ function App() {
               items={history}
               onOpen={(item) => {
                 setResult(item);
+                setStatus(
+                  String(item.status || '').toUpperCase() === 'FAILED'
+                    ? 'error'
+                    : 'complete'
+                );
                 setSection('analyze');
               }}
               onDelete={deleteAnalysis}
@@ -456,11 +481,18 @@ function App() {
                     </div>
 
                     <span
-                      className={`status-dot ${
-                        recording ? 'live' : ''
+                      className={`status-dot status-${
+                        recording ? 'recording' : status
+                      }`}
+                      aria-label={`System status: ${
+                        recording
+                          ? 'Recording'
+                          : analysisStatusLabels[status]
                       }`}
                     >
-                      {recording ? 'Recording' : 'Ready'}
+                      {recording
+                        ? 'Recording'
+                        : analysisStatusLabels[status]}
                     </span>
                   </div>
 
@@ -499,7 +531,9 @@ function App() {
                           setFile(selectedFile);
                           setError('');
                           setResult(null);
-                          setStatus('idle');
+                          setStatus(
+                            selectedFile ? 'waiting' : 'idle'
+                          );
                         }}
                       />
                     </label>
@@ -732,29 +766,13 @@ function AuthPanel({ onAuthenticated }) {
 }
 
 function Result({ result }) {
-  const resultStatus = String(result.status || '').toUpperCase();
-  const classification = String(
-    result.classification || ''
-  ).toUpperCase();
-
-  const inconclusive =
-    resultStatus === 'INCONCLUSIVE' ||
-    resultStatus === 'FAILED' ||
-    !result.classification ||
-    classification === 'INCONCLUSIVE';
-
-  const label = inconclusive
-    ? 'Inconclusive'
-    : classification === 'LIKELY_SYNTHETIC'
-      ? 'Likely synthetic'
-      : classification === 'LIKELY_HUMAN'
-        ? 'Likely human'
-        : 'Inconclusive';
-
   const aiProbability =
     result.ai_probability == null
       ? null
       : Number(result.ai_probability);
+
+  const label = getResultLabel(aiProbability);
+  const inconclusive = label === 'Inconclusive';
 
   const detectionConfidence =
     result.detection_confidence == null

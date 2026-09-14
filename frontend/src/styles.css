@@ -67,7 +67,11 @@ h1 { font-size: clamp(2.35rem, 5vw, 4.35rem); letter-spacing: -.055em; }
 .panel-heading h2 { font-size: 1.65rem; }
 .status-dot { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; background: #f8fbf8; }
 .status-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #65a87f; }
-.status-dot.live::before { background: var(--coral); box-shadow: 0 0 0 4px rgba(201, 93, 78, .12); }
+.status-dot.status-idle::before { background: #9aa5a1; }
+.status-dot.status-waiting::before { background: #4d8fd8; box-shadow: 0 0 0 4px rgba(77, 143, 216, .14); }
+.status-dot.status-processing::before { background: #d9a52e; box-shadow: 0 0 0 4px rgba(217, 165, 46, .14); }
+.status-dot.status-complete::before { background: #65a87f; box-shadow: 0 0 0 4px rgba(101, 168, 127, .14); }
+.status-dot.status-error::before, .status-dot.status-recording::before { background: var(--coral); box-shadow: 0 0 0 4px rgba(201, 93, 78, .12); }
 .capture-actions { border-top: 1px solid #e5ece7; padding-top: 22px; }
 .button { border-radius: 7px; padding: 13px 16px; transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
 .button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 14px rgba(20, 62, 58, .12); }
