@@ -15,8 +15,20 @@
     },
     "android": {
       "package": "com.example.mobile",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
-    "plugins": ["expo-av", "expo-document-picker"]
+    "plugins": [
+      "expo-av",
+      "expo-document-picker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "94c0c27a-6166-46ca-97a0-d8e92066f398"
+      }
+    }
   }
 }
