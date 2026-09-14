@@ -50,7 +50,12 @@ class AuthenticityResult:
 
 
 class SpeechToTextService(Protocol):
-    def transcribe(self, audio: bytes, language: str) -> TranscriptionResult:
+    def transcribe(
+        self,
+        audio: bytes,
+        language: str,
+        filename: str | None = None,
+    ) -> TranscriptionResult:
         ...
 
 
@@ -202,6 +207,7 @@ class LocalWhisperSpeechToText:
         self,
         audio: bytes,
         language: str,
+        filename: str | None = None,
     ) -> TranscriptionResult:
 
         if not audio:
