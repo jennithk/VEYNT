@@ -1,6 +1,7 @@
 {
   "expo": {
     "name": "Veynt",
+    "owner": "mlbhanumurthy",
     "slug": "ve-ynt-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -25,10 +26,6 @@
       "expo-av",
       "expo-document-picker"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "94c0c27a-6166-46ca-97a0-d8e92066f398"
-      }
-    }
+    "extra": {}
   }
 }
