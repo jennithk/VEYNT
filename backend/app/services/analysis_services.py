@@ -442,14 +442,25 @@ class LocalSpeakerVerification:
             ) from exc
 
         model_source = self._resolve_model_source()
+        model_path = Path(model_source)
+        local_model_ready = (model_path / "hyperparams.yaml").exists()
+        source = str(model_path) if local_model_ready else self.model_ref
+        savedir = (
+            str(model_path)
+            if local_model_ready
+            else str(Path(__file__).resolve().parents[2] / "pretrained_models" / Path(self.model_ref).name)
+        )
 
         print(f"[VEYNT] Loading speaker verification model from: {model_source}")
 
         try:
+            from speechbrain.utils.fetching import LocalStrategy
+
             self._model = SpeakerRecognition.from_hparams(
-                source=str(model_source),
-                savedir=str(model_source),
+                source=source,
+                savedir=savedir,
                 hparams_file="hyperparams.yaml",
+                local_strategy=LocalStrategy.COPY,
             )
         except Exception as exc:
             raise RuntimeError(
@@ -475,10 +486,23 @@ class LocalSpeakerVerification:
             test_path = test_file.name
 
         try:
+            import soundfile as sf
+            import torch
             import torchaudio
 
-            reference_waveform, reference_rate = torchaudio.load(reference_path, channels_first=True)
-            test_waveform, test_rate = torchaudio.load(test_path, channels_first=True)
+            reference_data, reference_rate = sf.read(
+                reference_path,
+                dtype="float32",
+                always_2d=True,
+            )
+            test_data, test_rate = sf.read(
+                test_path,
+                dtype="float32",
+                always_2d=True,
+            )
+
+            reference_waveform = torch.from_numpy(reference_data.T)
+            test_waveform = torch.from_numpy(test_data.T)
 
             if reference_waveform.ndim == 2:
                 reference_waveform = reference_waveform.mean(dim=0)
