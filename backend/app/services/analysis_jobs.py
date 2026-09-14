@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app.risk_engine.risk_engine import compute_evidence_risk
 from app.services.analysis_services import (
+    TranscriptionResult,
     build_authenticity_service,
     build_speech_to_text,
 )
@@ -54,12 +55,21 @@ class AnalysisJobManager:
             # ------------------------------------------------
             # STEP 1: REAL LOCAL WHISPER TRANSCRIPTION
             # ------------------------------------------------
-            transcript_service = build_speech_to_text()
-
-            transcript = transcript_service.transcribe(
-                audio,
-                language,
-            )
+            transcript_warning = None
+            try:
+                transcript_service = build_speech_to_text()
+                transcript = transcript_service.transcribe(
+                    audio,
+                    language,
+                )
+            except RuntimeError as exc:
+                transcript_warning = f"Transcript unavailable: {exc}"
+                transcript = TranscriptionResult(
+                    text="",
+                    language=language,
+                    confidence=None,
+                    segments=[],
+                )
 
             # ------------------------------------------------
             # STEP 2: REAL AI-VOICE AUTHENTICITY PROVIDER
@@ -102,7 +112,11 @@ class AnalysisJobManager:
                 detection_confidence=(
                     authenticity.confidence
                 ),
-                signals=authenticity.signals,
+                signals=(
+                    [*authenticity.signals, transcript_warning]
+                    if transcript_warning
+                    else authenticity.signals
+                ),
                 model_version=(
                     authenticity.model_version
                 ),
