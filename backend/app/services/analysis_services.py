@@ -16,6 +16,14 @@ SUPPORTED_LANGUAGES = {
 }
 
 
+def _normalize_detected_language(language: str, transcript: str) -> str:
+    if any("\u0c00" <= character <= "\u0c7f" for character in transcript):
+        return "te"
+    if any("\u0900" <= character <= "\u097f" for character in transcript):
+        return "hi"
+    return language
+
+
 @dataclass(frozen=True)
 class TranscriptSegment:
     start: float
@@ -104,6 +112,32 @@ class UnconfiguredSpeakerVerification:
         )
 
 
+def _ensure_torchaudio_compatibility() -> None:
+    if os.name == "nt" and hasattr(os, "add_dll_directory"):
+        dll_candidates = [
+            Path(os.getenv("VEYNT_FFMPEG_BIN", "")),
+            Path(r"C:\Program Files\FFmpeg\bin"),
+            Path(os.getenv("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages",
+        ]
+        for candidate in dll_candidates:
+            if candidate.name == "Packages":
+                candidate = next(
+                    candidate.glob("Gyan.FFmpeg.Shared_*/*/bin"),
+                    Path(),
+                )
+            if candidate.is_dir() and any(candidate.glob("avcodec-*.dll")):
+                os.add_dll_directory(str(candidate))
+                break
+
+    try:
+        import torchaudio
+    except Exception:
+        return
+
+    if not hasattr(torchaudio, "list_audio_backends"):
+        torchaudio.list_audio_backends = lambda: ["soundfile"]
+
+
 # ============================================================
 # LOCAL WHISPER SPEECH-TO-TEXT
 # ============================================================
@@ -182,14 +216,21 @@ class LocalWhisperSpeechToText:
             model = self._get_model()
 
             whisper_language = None
+            initial_prompt = None
 
             if language in {"en", "hi", "te"}:
                 whisper_language = language
+                if language == "te":
+                    initial_prompt = "ఇది తెలుగు భాషలో మాట్లాడిన మాటలు."
 
             segments_iterator, info = model.transcribe(
                 temporary_path,
                 language=whisper_language,
+                task="transcribe",
                 beam_size=5,
+                temperature=0.0,
+                condition_on_previous_text=False,
+                initial_prompt=initial_prompt,
                 vad_filter=True,
             )
 
@@ -224,9 +265,17 @@ class LocalWhisperSpeechToText:
                 None,
             )
 
+            if language in {"en", "hi", "te"}:
+                detected_language = language
+            else:
+                detected_language = _normalize_detected_language(
+                    detected_language or language,
+                    transcript_text,
+                )
+
             return TranscriptionResult(
                 text=transcript_text,
-                language=detected_language or language,
+                language=detected_language,
                 confidence=(
                     float(language_probability)
                     if language_probability is not None
@@ -349,6 +398,128 @@ class HttpAuthenticityService:
 
 
 # ============================================================
+# LOCAL SPEAKER VERIFICATION
+# ============================================================
+
+class LocalSpeakerVerification:
+    def __init__(self):
+        self.model_ref = os.getenv(
+            "VEYNT_SPEAKER_MODEL",
+            "speechbrain/spkrec-ecapa-voxceleb",
+        )
+        self.match_threshold = float(
+            os.getenv("VEYNT_SPEAKER_MATCH_THRESHOLD", "70")
+        ) / 100.0
+        self._model = None
+
+    def _resolve_model_source(self) -> Path:
+        model_ref = self.model_ref.strip()
+        if model_ref and os.path.exists(model_ref):
+            return Path(model_ref).resolve()
+
+        local_candidates = [
+            Path(__file__).resolve().parents[2] / "pretrained_models" / "spkrec-ecapa-voxceleb",
+            Path(__file__).resolve().parents[2] / "pretrained_models" / (Path(model_ref).name or "spkrec-ecapa-voxceleb"),
+        ]
+
+        for candidate in local_candidates:
+            if candidate.exists():
+                return candidate
+
+        return Path(__file__).resolve().parents[2] / "pretrained_models" / "spkrec-ecapa-voxceleb"
+
+    def _get_model(self):
+        if self._model is not None:
+            return self._model
+
+        _ensure_torchaudio_compatibility()
+
+        try:
+            from speechbrain.inference.speaker import SpeakerRecognition
+        except Exception as exc:
+            raise RuntimeError(
+                "Local speech verification model is not available. Install SpeechBrain and its audio backend compatibility."
+            ) from exc
+
+        model_source = self._resolve_model_source()
+
+        print(f"[VEYNT] Loading speaker verification model from: {model_source}")
+
+        try:
+            self._model = SpeakerRecognition.from_hparams(
+                source=str(model_source),
+                savedir=str(model_source),
+                hparams_file="hyperparams.yaml",
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Speaker verification model failed to load from {model_source}: {exc}"
+            ) from exc
+
+        return self._model
+
+    def compare(
+        self,
+        reference_audio: bytes,
+        test_audio: bytes,
+    ) -> SpeakerVerificationResult:
+        if not reference_audio or not test_audio:
+            raise RuntimeError("Both reference and test audio are required for speaker verification.")
+
+        model = self._get_model()
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reference_file, tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as test_file:
+            reference_file.write(reference_audio)
+            test_file.write(test_audio)
+            reference_path = reference_file.name
+            test_path = test_file.name
+
+        try:
+            import torchaudio
+
+            reference_waveform, reference_rate = torchaudio.load(reference_path, channels_first=True)
+            test_waveform, test_rate = torchaudio.load(test_path, channels_first=True)
+
+            if reference_waveform.ndim == 2:
+                reference_waveform = reference_waveform.mean(dim=0)
+            if test_waveform.ndim == 2:
+                test_waveform = test_waveform.mean(dim=0)
+
+            if reference_rate != 16000:
+                reference_waveform = torchaudio.functional.resample(reference_waveform, reference_rate, 16000)
+            if test_rate != 16000:
+                test_waveform = torchaudio.functional.resample(test_waveform, test_rate, 16000)
+
+            batch_x = reference_waveform.unsqueeze(0)
+            batch_y = test_waveform.unsqueeze(0)
+
+            emb1 = model.encode_batch(batch_x, normalize=False)
+            emb2 = model.encode_batch(batch_y, normalize=False)
+            score = model.similarity(emb1, emb2)
+
+            if hasattr(score, "item"):
+                score = score.item()
+            score = float(score)
+
+            similarity = max(0.0, min(1.0, (score + 1.0) / 2.0))
+            status = "MATCH" if similarity >= self.match_threshold else "NO_MATCH"
+            confidence = similarity
+
+            return SpeakerVerificationResult(
+                status=status,
+                similarity=similarity,
+                confidence=confidence,
+                provider="local_speechbrain",
+            )
+        finally:
+            for path in (reference_path, test_path):
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+
+# ============================================================
 # HTTP SPEAKER VERIFICATION
 # ============================================================
 
@@ -462,6 +633,9 @@ def build_speaker_verification() -> SpeakerVerificationService:
         "VEYNT_SPEAKER_PROVIDER",
         "none",
     ).lower()
+
+    if provider == "local":
+        return LocalSpeakerVerification()
 
     if provider == "http":
         return HttpSpeakerVerification()

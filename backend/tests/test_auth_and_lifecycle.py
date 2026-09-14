@@ -35,7 +35,7 @@ def test_account_and_analysis_are_authorized():
     assert created.status_code == 201
     analysis_id = created.json()["id"]
 
-    for _ in range(20):
+    for _ in range(300):
         detail = client.get(f"/api/analyses/{analysis_id}", headers=headers).json()
         if detail["status"] not in {"QUEUED", "PROCESSING"}:
             break

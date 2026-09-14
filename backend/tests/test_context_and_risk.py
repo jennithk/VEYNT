@@ -1,5 +1,24 @@
 from app.risk_engine.risk_engine import classify_risk, compute_risk
+from app.services.analysis_services import (
+    _normalize_detected_language,
+    build_speaker_verification,
+)
 from app.services.context_analysis import ContextAnalyzer
+
+
+def test_build_speaker_verification_uses_local_model(monkeypatch):
+    monkeypatch.setenv("VEYNT_SPEAKER_PROVIDER", "local")
+    monkeypatch.setenv("VEYNT_SPEAKER_MODEL", "speechbrain/spkrec-ecapa-voxceleb")
+
+    service = build_speaker_verification()
+
+    assert service.__class__.__name__ == "LocalSpeakerVerification"
+
+
+def test_telugu_script_corrects_auto_detected_language():
+    assert _normalize_detected_language("tl", "నమస్కారం") == "te"
+    assert _normalize_detected_language("te", "नमस्ते") == "hi"
+    assert _normalize_detected_language("en", "Hello") == "en"
 
 
 def test_context_analysis_detects_suspicious_financial_request():

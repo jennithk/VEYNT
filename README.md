@@ -113,7 +113,7 @@ Set the backend environment in a file such as `.env` or `.env.example`:
 
 ```env
 VEYNT_STT_PROVIDER=local
-VEYNT_STT_MODEL=small
+VEYNT_STT_MODEL=medium
 VEYNT_STT_DEVICE=cpu
 VEYNT_STT_COMPUTE_TYPE=int8
 VEYNT_AUTHENTICITY_PROVIDER=local_aasist
